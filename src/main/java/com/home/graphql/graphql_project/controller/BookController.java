@@ -1,21 +1,32 @@
 package com.home.graphql.graphql_project.controller;
 
+import com.home.graphql.graphql_project.entity.Author;
 import com.home.graphql.graphql_project.entity.Book;
+import com.home.graphql.graphql_project.repository.AuthorRepository;
 import com.home.graphql.graphql_project.repository.BookRepository;
+import com.home.graphql.graphql_project.service.AuthorService;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.graphql.data.method.annotation.Argument;
 import org.springframework.graphql.data.method.annotation.MutationMapping;
 import org.springframework.graphql.data.method.annotation.QueryMapping;
+import org.springframework.graphql.data.method.annotation.SchemaMapping;
 import org.springframework.stereotype.Controller;
 import java.util.List;
 
 @Controller
 public class BookController {
-    private final BookRepository repository;
+    private final BookRepository bookRepository;
+    private final AuthorService authorService;
 
-    public BookController(BookRepository repository) {
-        this.repository = repository;
+    public BookController(BookRepository bookRepository, AuthorRepository authorRepository, AuthorService authorService) {
+        this.bookRepository = bookRepository;
+        this.authorService = authorService;
+    }
+
+    @QueryMapping
+    public List<Book> getAllBooks() {
+        return bookRepository.findAll();
     }
 
     @QueryMapping
@@ -24,48 +35,60 @@ public class BookController {
                 offset != null ? offset : 0,
                 limit != null ? limit : 10
         );
-        return repository.findAll(pageable).getContent();
+        return bookRepository.findAll(pageable).getContent();
     }
 
     @QueryMapping
     public List<Book> searchBooks(@Argument String author, @Argument String titleContains) {
-        if (author != null && !author.isEmpty()) {
-            return repository.findByAuthorContainingIgnoreCase(author);
-        } else if (titleContains != null && !titleContains.isEmpty()) {
-            return repository.findByTitleContainingIgnoreCase(titleContains);
+        if (titleContains != null && !titleContains.isEmpty()) {
+            return bookRepository.findByTitleContainingIgnoreCase(titleContains);
         }
-        return repository.findAll();
+        return bookRepository.findAll();
     }
 
 
     @QueryMapping
     public Book getBookById(@Argument Long id) {
-        return repository.findById(id).orElse(null);
+        return bookRepository.findById(id).orElse(null);
     }
 
     @MutationMapping
-    public Book createBook(@Argument String title, @Argument String author) {
+    public Book createBook(@Argument String title, @Argument String authorName) {
+        Author author = new Author();
+        author.setName(authorName);
+        author = authorService.save(author);
         Book book = new Book();
         book.setTitle(title);
         book.setAuthor(author);
-        return repository.save(book);
+        book =  bookRepository.save(book);
+        return book;
     }
 
     @MutationMapping
-    public Book updateBook(@Argument Long id, @Argument String title, @Argument String author) {
-        return repository.findById(id).map(existing -> {
+    public Book updateBook(@Argument Long id, @Argument String title, @Argument String authorName) {
+        return bookRepository.findById(id).map(existing -> {
             if (title != null) existing.setTitle(title);
-            if (author != null) existing.setAuthor(author);
-            return repository.save(existing);
+            if (authorName != null) {
+                Author author = authorService.findById(existing.getAuthor().getId());
+                author.setName(authorName);
+                authorService.save(author);
+            }
+            return bookRepository.save(existing);
         }).orElse(null);
     }
 
     @MutationMapping
     public Boolean deleteBook(@Argument Long id) {
-        if (repository.existsById(id)) {
-            repository.deleteById(id);
+        if (bookRepository.existsById(id)) {
+            bookRepository.deleteById(id);
             return true;
         }
         return false;
+    }
+
+    // Resolving nested field: Book.author
+    @SchemaMapping
+    public Author author(Book book) {
+        return authorService.findById(book.getAuthor().getId());
     }
 }
