@@ -5,23 +5,25 @@ import com.home.graphql.graphql_project.entity.Book;
 import com.home.graphql.graphql_project.repository.AuthorRepository;
 import com.home.graphql.graphql_project.repository.BookRepository;
 import com.home.graphql.graphql_project.service.AuthorService;
+import com.home.graphql.graphql_project.service.BookService;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.graphql.data.method.annotation.Argument;
-import org.springframework.graphql.data.method.annotation.MutationMapping;
-import org.springframework.graphql.data.method.annotation.QueryMapping;
-import org.springframework.graphql.data.method.annotation.SchemaMapping;
+import org.springframework.graphql.data.method.annotation.*;
 import org.springframework.stereotype.Controller;
+import reactor.core.publisher.Flux;
+
 import java.util.List;
 
 @Controller
 public class BookController {
     private final BookRepository bookRepository;
     private final AuthorService authorService;
+    private final BookService bookService;
 
-    public BookController(BookRepository bookRepository, AuthorRepository authorRepository, AuthorService authorService) {
+    public BookController(BookRepository bookRepository, AuthorRepository authorRepository, AuthorService authorService, BookService bookService) {
         this.bookRepository = bookRepository;
         this.authorService = authorService;
+        this.bookService = bookService;
     }
 
     @QueryMapping
@@ -60,7 +62,7 @@ public class BookController {
         Book book = new Book();
         book.setTitle(title);
         book.setAuthor(author);
-        book =  bookRepository.save(book);
+        book = bookService.addBook(book);
         return book;
     }
 
@@ -90,5 +92,10 @@ public class BookController {
     @SchemaMapping
     public Author author(Book book) {
         return authorService.findById(book.getAuthor().getId());
+    }
+
+    @SubscriptionMapping
+    public Flux<Book> bookAdded() {
+        return bookService.getBookStream(); // Emits new books reactively
     }
 }
