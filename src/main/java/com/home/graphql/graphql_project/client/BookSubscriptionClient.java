@@ -4,12 +4,14 @@ import com.home.graphql.graphql_project.entity.Book;
 import org.springframework.graphql.client.WebSocketGraphQlClient;
 import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClient;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.net.URI;
+import java.util.concurrent.CountDownLatch;
 
 public class BookSubscriptionClient {
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws InterruptedException {
         // Create WebSocket client
         ReactorNettyWebSocketClient webSocketClient = new ReactorNettyWebSocketClient();
 
@@ -31,24 +33,45 @@ public class BookSubscriptionClient {
             }
         """;
 
-        // Execute subscription
+
+        // execute subscription and safely flatten possible reactive entity
         Flux<Book> bookFlux = graphQlClient.document(subscriptionQuery)
                 .executeSubscription()
-                .map(response -> response.field("bookAdded").toEntity(Book.class));
+                .flatMap(response -> {
+                    try {
+                        Object entity = response.field("bookAdded").toEntity(Book.class);
+                        // handle both synchronous Book and Mono<Book>
+                        if (entity instanceof Mono) {
+                            @SuppressWarnings("unchecked")
+                            Mono<Book> monoBook = (Mono<Book>) entity;
+                            return monoBook.flux();
+                        } else if (entity instanceof Book) {
+                            return Flux.just((Book) entity);
+                        } else {
+                            return Flux.empty();
+                        }
+                    } catch (Throwable t) {
+                        return Flux.error(t);
+                    }
+                });
 
-        // Listen for new books
-        bookFlux.subscribe(
-                book -> System.out.println("📖 New Book Added: " + book),
-                error -> System.err.println("❌ Error: " + error),
-                () -> System.out.println("✅ Subscription completed")
-        );
+        CountDownLatch latch = new CountDownLatch(1);
 
-        // Keep application running to listen
-        try {
-            Thread.sleep(600 * 1000); // 1 minutes
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        bookFlux
+                .doOnSubscribe(s -> System.out.println("→ Subscription started"))
+                .doOnNext(book -> System.out.println("📖 New Book Added: " + book))
+                .doOnError(err -> {
+                    System.err.println("❌ Error: " + err);
+                    latch.countDown();
+                })
+                .doOnComplete(() -> {
+                    System.out.println("✅ Subscription completed");
+//                    latch.countDown();
+                })
+                .subscribe();
+
+        // keep application alive until completion/error
+        latch.await();
     }
 
 
